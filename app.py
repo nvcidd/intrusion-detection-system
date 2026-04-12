@@ -3,11 +3,19 @@ import joblib
 import numpy as np
 import pandas as pd
 import time
+import os
+
+# ===============================
+# 🔥 LIMIT CPU + MEMORY USAGE
+# ===============================
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 app = Flask(__name__)
 
 # ===============================
-# LAZY LOAD MODELS (IMPORTANT FIX)
+# LAZY LOAD MODELS
 # ===============================
 xgb_model = None
 iso_model = None
@@ -26,6 +34,12 @@ def load_models():
         le = joblib.load("label_encoder.pkl")
         feature_columns = joblib.load("features.pkl")
 
+        # 🔥 LIMIT XGBOOST THREADS
+        try:
+            xgb_model.set_params(n_jobs=1)
+        except:
+            pass
+
 
 @app.route("/")
 def home():
@@ -37,14 +51,11 @@ def predict():
     start_time = time.time()
 
     try:
-        # 🔥 LOAD MODELS ONLY WHEN NEEDED
+        # LOAD MODELS ONLY WHEN NEEDED
         load_models()
 
         req = request.get_json()
 
-        # ===============================
-        # VALIDATION
-        # ===============================
         if not req or "features" not in req:
             return jsonify({"error": "No features provided"}), 400
 
@@ -63,13 +74,13 @@ def predict():
         df_scaled = scaler.transform(df)
 
         # ===============================
-        # 🔥 BATCH PREDICTION
+        # PREDICTION
         # ===============================
         xgb_proba = xgb_model.predict_proba(df_scaled)
         if_preds = iso_model.predict(df_scaled)
 
         # ===============================
-        # 🔥 VECTORIZED LOGIC
+        # LOGIC
         # ===============================
         max_idx = np.argmax(xgb_proba, axis=1)
         max_prob = np.max(xgb_proba, axis=1)
@@ -107,9 +118,8 @@ def predict():
 
 
 # ===============================
-# LOCAL RUN (NOT USED IN RENDER)
+# LOCAL RUN
 # ===============================
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
