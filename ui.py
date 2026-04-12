@@ -132,7 +132,7 @@ uploaded_files = st.sidebar.file_uploader(
 st.sidebar.markdown("### Controls")
 live_mode = st.sidebar.toggle("Live Simulation", False)
 max_rows = st.sidebar.slider("Max Rows", 1000, 20000, 10000, 1000)
-batch_size = st.sidebar.slider("Batch Size", 100, 1000, 500, 100)
+batch_size = st.sidebar.slider("Batch Size", 100, 1000, 200, 100)
 
 # ===============================
 # CARD FUNCTION
@@ -210,6 +210,7 @@ if uploaded_files:
                     continue
 
                 predictions = result["results"]
+                time.sleep(0.2)
 
                 for res in predictions:
 
