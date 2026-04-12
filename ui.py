@@ -103,7 +103,7 @@ st.markdown('<div class="title">AI Intrusion Detection System</div>', unsafe_all
 # LOAD FEATURES
 # ===============================
 feature_columns = joblib.load("features.pkl")
-API_URL = "http://127.0.0.1:5000/predict"
+API_URL = "https://intrusion-detection-system-6lvo.onrender.com/predict"
 
 # ===============================
 # SIDEBAR
