@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-import matplotlib.pyplot as plt
 import joblib
 import numpy as np
 import pandas as pd
@@ -8,18 +7,29 @@ import time
 app = Flask(__name__)
 
 # ===============================
-# LOAD MODELS (LOAD ONCE)
+# LAZY LOAD MODELS (IMPORTANT FIX)
 # ===============================
-xgb_model = joblib.load("ids_xgboost_multiclass.pkl")
-iso_model = joblib.load("isolation_forest.pkl")
-scaler = joblib.load("scaler.pkl")
-le = joblib.load("label_encoder.pkl")
-feature_columns = joblib.load("features.pkl")
+xgb_model = None
+iso_model = None
+scaler = None
+le = None
+feature_columns = None
+
+
+def load_models():
+    global xgb_model, iso_model, scaler, le, feature_columns
+
+    if xgb_model is None:
+        xgb_model = joblib.load("ids_xgboost_multiclass.pkl")
+        iso_model = joblib.load("isolation_forest.pkl")
+        scaler = joblib.load("scaler.pkl")
+        le = joblib.load("label_encoder.pkl")
+        feature_columns = joblib.load("features.pkl")
 
 
 @app.route("/")
 def home():
-    return "🚨 IDS API is running!"
+    return "IDS API is running!"
 
 
 @app.route("/predict", methods=["POST"])
@@ -27,6 +37,9 @@ def predict():
     start_time = time.time()
 
     try:
+        # 🔥 LOAD MODELS ONLY WHEN NEEDED
+        load_models()
+
         req = request.get_json()
 
         # ===============================
@@ -56,21 +69,19 @@ def predict():
         if_preds = iso_model.predict(df_scaled)
 
         # ===============================
-        # 🔥 VECTORIZED LOGIC (FASTER)
+        # 🔥 VECTORIZED LOGIC
         # ===============================
         max_idx = np.argmax(xgb_proba, axis=1)
         max_prob = np.max(xgb_proba, axis=1)
 
-        # Apply threshold rule
         forced_attack = (max_idx == 0) & (max_prob < 0.4)
         final_idx = np.where(forced_attack, 1, max_idx)
 
         labels = le.inverse_transform(final_idx)
-
         anomalies = (if_preds == -1)
 
         # ===============================
-        # FORMAT RESPONSE
+        # RESPONSE
         # ===============================
         results = [
             {
@@ -95,5 +106,10 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
+# ===============================
+# LOCAL RUN (NOT USED IN RENDER)
+# ===============================
 if __name__ == "__main__":
-    app.run(debug=False, threaded=True)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
