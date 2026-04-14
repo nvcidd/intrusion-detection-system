@@ -19,7 +19,11 @@ st.set_page_config(page_title="IDS Dashboard", layout="wide")
 # ===============================
 @st.cache_resource
 def load_models():
-    xgb_model = joblib.load("ids_xgboost_multiclass.pkl")
+    from xgboost import XGBClassifier
+
+    xgb_model = XGBClassifier()
+    xgb_model.load_model("xgb_model.json")
+
     iso_model = joblib.load("isolation_forest.pkl")
     scaler = joblib.load("scaler.pkl")
     le = joblib.load("label_encoder.pkl")
@@ -31,6 +35,7 @@ def load_models():
         pass
 
     return xgb_model, iso_model, scaler, le, feature_columns
+
 
 xgb_model, iso_model, scaler, le, feature_columns = load_models()
 
@@ -109,7 +114,7 @@ if uploaded_files:
             df_features = df_features.sample(n=max_rows, random_state=42)
 
         # ===============================
-        # 🔥 DIRECT MODEL INFERENCE
+        # 🔥 BATCH INFERENCE
         # ===============================
         for i in range(0, len(df_features), batch_size):
 
