@@ -92,8 +92,11 @@ if uploaded_files:
 
     for file in uploaded_files:
 
-        df = pd.read_csv(file, encoding="latin1", low_memory=False)
+        # ✅ FIX 1: Proper CSV reading
+        df = pd.read_csv(file, encoding="latin1", low_memory=False, on_bad_lines='skip')
         df.columns = df.columns.str.strip()
+
+        st.write("Original rows:", len(df))  # DEBUG
 
         if "Label" in df.columns:
             df_features = df.drop(columns=["Label"])
@@ -104,12 +107,12 @@ if uploaded_files:
         df_features = df_features.replace([np.inf, -np.inf], 0)
         df_features = df_features.fillna(0)
 
-        for col in feature_columns:
-            if col not in df_features.columns:
-                df_features[col] = 0
+        # ✅ FIX 2: Correct feature alignment (NO manual loop)
+        df_features = df_features.reindex(columns=feature_columns, fill_value=0)
 
-        df_features = df_features[feature_columns]
+        st.write("Processed rows:", len(df_features))  # DEBUG
 
+        # Sampling only if live mode ON
         if live_mode and len(df_features) > max_rows:
             df_features = df_features.sample(n=max_rows, random_state=42)
 
@@ -131,7 +134,7 @@ if uploaded_files:
             forced_attack = (max_idx == 0) & (max_prob < 0.4)
             final_idx = np.where(forced_attack, 1, max_idx)
 
-            # ✅ FIX: prevent unseen label crash
+            # ✅ FIX 3: Prevent label crash
             final_idx = np.clip(final_idx, 0, len(le.classes_) - 1)
 
             labels = le.inverse_transform(final_idx)
