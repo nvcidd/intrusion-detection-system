@@ -5,6 +5,7 @@ import joblib
 import time
 import os
 from collections import Counter
+import matplotlib.pyplot as plt
 
 # ===============================
 # LIMIT CPU (EC2 FIX)
@@ -80,7 +81,7 @@ if uploaded_file:
     processed_rows = len(df)
 
     # ===============================
-    # 🔥 SINGLE PASS (NO BATCH BUG)
+    # MODEL PREDICTION
     # ===============================
     X_scaled = scaler.transform(df)
 
@@ -90,18 +91,16 @@ if uploaded_file:
     max_idx = np.argmax(xgb_proba, axis=1)
     max_prob = np.max(xgb_proba, axis=1)
 
-    # FIX LOW CONF BENIGN
     forced_attack = (max_idx == 0) & (max_prob < 0.4)
     final_idx = np.where(forced_attack, 1, max_idx)
 
-    # SAFE INDEX
     final_idx = np.clip(final_idx, 0, len(le.classes_) - 1)
 
     labels = le.inverse_transform(final_idx)
     anomalies = (if_preds == -1)
 
     # ===============================
-    # COUNT (CORRECT)
+    # COUNT
     # ===============================
     total_records = len(df)
     total_attacks = 0
@@ -132,7 +131,7 @@ if uploaded_file:
     st.markdown(f"**Processing Time:** `{round(end_time - start_time, 2)} sec`")
 
     # ===============================
-    # CHARTS
+    # BAR CHART - ATTACK TYPES
     # ===============================
     if attack_counter:
         st.subheader("Attack Distribution")
@@ -143,6 +142,9 @@ if uploaded_file:
 
         st.bar_chart(chart_df)
 
+    # ===============================
+    # BAR CHART - TRAFFIC SPLIT
+    # ===============================
     benign = total_records - total_attacks
 
     st.subheader("Traffic Split")
@@ -152,6 +154,22 @@ if uploaded_file:
     }).set_index("Type")
 
     st.bar_chart(split_df)
+
+    # ===============================
+    # PIE CHART (FIXED)
+    # ===============================
+    st.subheader("Traffic Distribution (Pie Chart)")
+
+    if total_records > 0 and benign >= 0:
+        fig, ax = plt.subplots()
+
+        ax.pie(
+            [benign, total_attacks],
+            labels=["Benign", "Attack"],
+            autopct="%1.1f%%"
+        )
+
+        st.pyplot(fig)
 
 else:
     st.info("Upload a CSV file to start")
