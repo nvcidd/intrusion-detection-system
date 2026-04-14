@@ -1,125 +1,179 @@
-from flask import Flask, request, jsonify
-import joblib
-import numpy as np
+import streamlit as st
+import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+from collections import Counter
+import joblib
 import time
 import os
 
 # ===============================
-# 🔥 LIMIT CPU + MEMORY USAGE
+# 🔥 LIMIT CPU USAGE
 # ===============================
 os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
 
-app = Flask(__name__)
+st.set_page_config(page_title="IDS Dashboard", layout="wide")
 
 # ===============================
-# LAZY LOAD MODELS
+# LOAD MODELS (CACHE)
 # ===============================
-xgb_model = None
-iso_model = None
-scaler = None
-le = None
-feature_columns = None
-
-
+@st.cache_resource
 def load_models():
-    global xgb_model, iso_model, scaler, le, feature_columns
-
-    if xgb_model is None:
-        xgb_model = joblib.load("ids_xgboost_multiclass.pkl")
-        iso_model = joblib.load("isolation_forest.pkl")
-        scaler = joblib.load("scaler.pkl")
-        le = joblib.load("label_encoder.pkl")
-        feature_columns = joblib.load("features.pkl")
-
-        # 🔥 LIMIT XGBOOST THREADS
-        try:
-            xgb_model.set_params(n_jobs=1)
-        except:
-            pass
-
-
-@app.route("/")
-def home():
-    return "IDS API is running!"
-
-
-@app.route("/predict", methods=["POST"])
-def predict():
-    start_time = time.time()
+    xgb_model = joblib.load("ids_xgboost_multiclass.pkl")
+    iso_model = joblib.load("isolation_forest.pkl")
+    scaler = joblib.load("scaler.pkl")
+    le = joblib.load("label_encoder.pkl")
+    feature_columns = joblib.load("features.pkl")
 
     try:
-        # LOAD MODELS ONLY WHEN NEEDED
-        load_models()
+        xgb_model.set_params(n_jobs=1)
+    except:
+        pass
 
-        req = request.get_json()
+    return xgb_model, iso_model, scaler, le, feature_columns
 
-        if not req or "features" not in req:
-            return jsonify({"error": "No features provided"}), 400
-
-        data = req["features"]
-
-        # ===============================
-        # PREPROCESS
-        # ===============================
-        df = pd.DataFrame(data, columns=feature_columns)
-
-        df = df.apply(pd.to_numeric, errors='coerce')
-        df = df.replace([np.inf, -np.inf], 0)
-        df = df.fillna(0)
-
-        # SCALE
-        df_scaled = scaler.transform(df)
-
-        # ===============================
-        # PREDICTION
-        # ===============================
-        xgb_proba = xgb_model.predict_proba(df_scaled)
-        if_preds = iso_model.predict(df_scaled)
-
-        # ===============================
-        # LOGIC
-        # ===============================
-        max_idx = np.argmax(xgb_proba, axis=1)
-        max_prob = np.max(xgb_proba, axis=1)
-
-        forced_attack = (max_idx == 0) & (max_prob < 0.4)
-        final_idx = np.where(forced_attack, 1, max_idx)
-
-        labels = le.inverse_transform(final_idx)
-        anomalies = (if_preds == -1)
-
-        # ===============================
-        # RESPONSE
-        # ===============================
-        results = [
-            {
-                "prediction": labels[i],
-                "confidence": float(max_prob[i]),
-                "anomaly": bool(anomalies[i])
-            }
-            for i in range(len(labels))
-        ]
-
-        end_time = time.time()
-
-        return jsonify({
-            "results": results,
-            "meta": {
-                "rows": len(results),
-                "processing_time_sec": round(end_time - start_time, 3)
-            }
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+xgb_model, iso_model, scaler, le, feature_columns = load_models()
 
 # ===============================
-# LOCAL RUN
+# UI DESIGN (UNCHANGED)
 # ===============================
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+st.markdown("""<style>
+body { background-color: #0a0f1c; color: #e5e7eb; }
+.title { font-size: 38px; font-weight: 600; margin-bottom: 20px; }
+.card { padding: 20px; border-radius: 14px; background: linear-gradient(145deg, #0f172a, #111827); border: 1px solid #1f2937; }
+.metric-value { font-size: 30px; font-weight: 600; }
+.metric-label { font-size: 14px; color: #9ca3af; }
+</style>""", unsafe_allow_html=True)
+
+st.markdown('<div class="title">AI Intrusion Detection System</div>', unsafe_allow_html=True)
+
+# ===============================
+# SIDEBAR
+# ===============================
+uploaded_files = st.sidebar.file_uploader(
+    "Upload Network Logs",
+    type=["csv"],
+    accept_multiple_files=True
+)
+
+live_mode = st.sidebar.toggle("Live Simulation", False)
+max_rows = st.sidebar.slider("Max Rows", 1000, 20000, 10000, 1000)
+batch_size = st.sidebar.slider("Batch Size", 100, 1000, 200, 100)
+
+# ===============================
+# CARD
+# ===============================
+def card(label, value):
+    return f"""
+    <div class="card">
+        <div class="metric-value">{value}</div>
+        <div class="metric-label">{label}</div>
+    </div>
+    """
+
+# ===============================
+# MAIN
+# ===============================
+if uploaded_files:
+
+    total_records = 0
+    total_attacks = 0
+    total_anomalies = 0
+
+    attack_counter = Counter()
+    confidences = []
+
+    start_time = time.time()
+
+    for file in uploaded_files:
+
+        df = pd.read_csv(file, encoding="latin1", low_memory=False)
+        df.columns = df.columns.str.strip()
+
+        if "Label" in df.columns:
+            df_features = df.drop(columns=["Label"])
+        else:
+            df_features = df.copy()
+
+        df_features = df_features.apply(pd.to_numeric, errors='coerce')
+        df_features = df_features.replace([np.inf, -np.inf], 0)
+        df_features = df_features.fillna(0)
+
+        for col in feature_columns:
+            if col not in df_features.columns:
+                df_features[col] = 0
+
+        df_features = df_features[feature_columns]
+
+        if live_mode and len(df_features) > max_rows:
+            df_features = df_features.sample(n=max_rows, random_state=42)
+
+        # ===============================
+        # 🔥 DIRECT MODEL INFERENCE
+        # ===============================
+        for i in range(0, len(df_features), batch_size):
+
+            batch = df_features.iloc[i:i+batch_size]
+
+            batch_scaled = scaler.transform(batch)
+
+            xgb_proba = xgb_model.predict_proba(batch_scaled)
+            if_preds = iso_model.predict(batch_scaled)
+
+            max_idx = np.argmax(xgb_proba, axis=1)
+            max_prob = np.max(xgb_proba, axis=1)
+
+            forced_attack = (max_idx == 0) & (max_prob < 0.4)
+            final_idx = np.where(forced_attack, 1, max_idx)
+
+            labels = le.inverse_transform(final_idx)
+            anomalies = (if_preds == -1)
+
+            for j in range(len(labels)):
+                total_records += 1
+
+                conf = min(max_prob[j], 0.99)
+                confidences.append(conf)
+
+                if labels[j] != "BENIGN":
+                    total_attacks += 1
+                    attack_counter[labels[j]] += 1
+
+                if anomalies[j]:
+                    total_anomalies += 1
+
+    end_time = time.time()
+
+    # ===============================
+    # METRICS
+    # ===============================
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.markdown(card("Total Traffic", total_records), unsafe_allow_html=True)
+    col2.markdown(card("Attacks", total_attacks), unsafe_allow_html=True)
+    col3.markdown(card("Anomalies", total_anomalies), unsafe_allow_html=True)
+    col4.markdown(card("Avg Confidence", f"{np.mean(confidences):.2f}"), unsafe_allow_html=True)
+
+    st.markdown(card("Processing Time", f"{end_time - start_time:.2f}s"), unsafe_allow_html=True)
+
+    if attack_counter:
+        st.subheader("Attack Distribution")
+        st.bar_chart(pd.DataFrame({
+            "Attack": list(attack_counter.keys()),
+            "Count": list(attack_counter.values())
+        }).set_index("Attack"))
+
+    benign = total_records - total_attacks
+
+    st.subheader("Traffic Ratio")
+    st.bar_chart(pd.DataFrame({
+        "Type": ["Benign", "Attack"],
+        "Count": [benign, total_attacks]
+    }).set_index("Type"))
+
+    fig, ax = plt.subplots()
+    ax.pie([benign, total_attacks], labels=["Benign", "Attack"], autopct="%1.1f%%")
+    st.pyplot(fig)
+
+else:
+    st.info("Upload dataset to start")
