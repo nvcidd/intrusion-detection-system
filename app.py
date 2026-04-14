@@ -92,11 +92,11 @@ if uploaded_files:
 
     for file in uploaded_files:
 
-        # ✅ FIX 1: Proper CSV reading
+        # ✅ FIXED CSV LOAD
         df = pd.read_csv(file, encoding="latin1", low_memory=False, on_bad_lines='skip')
         df.columns = df.columns.str.strip()
 
-        st.write("Original rows:", len(df))  # DEBUG
+        st.write("Original rows:", len(df))
 
         if "Label" in df.columns:
             df_features = df.drop(columns=["Label"])
@@ -107,17 +107,16 @@ if uploaded_files:
         df_features = df_features.replace([np.inf, -np.inf], 0)
         df_features = df_features.fillna(0)
 
-        # ✅ FIX 2: Correct feature alignment (NO manual loop)
+        # ✅ FIXED FEATURE ALIGNMENT
         df_features = df_features.reindex(columns=feature_columns, fill_value=0)
 
-        st.write("Processed rows:", len(df_features))  # DEBUG
+        st.write("Processed rows:", len(df_features))
 
-        # Sampling only if live mode ON
         if live_mode and len(df_features) > max_rows:
             df_features = df_features.sample(n=max_rows, random_state=42)
 
         # ===============================
-        # 🔥 BATCH INFERENCE
+        # 🔥 BATCH INFERENCE (FIXED)
         # ===============================
         for i in range(0, len(df_features), batch_size):
 
@@ -134,24 +133,22 @@ if uploaded_files:
             forced_attack = (max_idx == 0) & (max_prob < 0.4)
             final_idx = np.where(forced_attack, 1, max_idx)
 
-            # ✅ FIX 3: Prevent label crash
             final_idx = np.clip(final_idx, 0, len(le.classes_) - 1)
 
             labels = le.inverse_transform(final_idx)
             anomalies = (if_preds == -1)
 
-            for j in range(len(labels)):
-                total_records += 1
+            # ✅ FIXED COUNTING (CRITICAL)
+            total_records += len(labels)
 
-                conf = min(max_prob[j], 0.99)
-                confidences.append(conf)
+            confidences.extend(np.clip(max_prob, 0, 0.99))
 
-                if labels[j] != "BENIGN":
+            for label in labels:
+                if label != "BENIGN":
                     total_attacks += 1
-                    attack_counter[labels[j]] += 1
+                    attack_counter[label] += 1
 
-                if anomalies[j]:
-                    total_anomalies += 1
+            total_anomalies += int(np.sum(anomalies))
 
     end_time = time.time()
 
