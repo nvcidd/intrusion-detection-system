@@ -8,14 +8,14 @@ import time
 import os
 
 # ===============================
-# 🔥 LIMIT CPU USAGE
+# LIMIT CPU
 # ===============================
 os.environ["OMP_NUM_THREADS"] = "1"
 
 st.set_page_config(page_title="IDS Dashboard", layout="wide")
 
 # ===============================
-# LOAD MODELS (CACHE)
+# LOAD MODELS
 # ===============================
 @st.cache_resource
 def load_models():
@@ -29,34 +29,18 @@ def load_models():
     le = joblib.load("label_encoder.pkl")
     feature_columns = joblib.load("features.pkl")
 
-    try:
-        xgb_model.set_params(n_jobs=1)
-    except:
-        pass
-
     return xgb_model, iso_model, scaler, le, feature_columns
 
 
 xgb_model, iso_model, scaler, le, feature_columns = load_models()
 
 # ===============================
-# UI DESIGN (UNCHANGED)
+# UI
 # ===============================
-st.markdown("""<style>
-body { background-color: #0a0f1c; color: #e5e7eb; }
-.title { font-size: 38px; font-weight: 600; margin-bottom: 20px; }
-.card { padding: 20px; border-radius: 14px; background: linear-gradient(145deg, #0f172a, #111827); border: 1px solid #1f2937; }
-.metric-value { font-size: 30px; font-weight: 600; }
-.metric-label { font-size: 14px; color: #9ca3af; }
-</style>""", unsafe_allow_html=True)
+st.title("AI Intrusion Detection System")
 
-st.markdown('<div class="title">AI Intrusion Detection System</div>', unsafe_allow_html=True)
-
-# ===============================
-# SIDEBAR
-# ===============================
 uploaded_files = st.sidebar.file_uploader(
-    "Upload Network Logs",
+    "Upload CSV",
     type=["csv"],
     accept_multiple_files=True
 )
@@ -64,17 +48,6 @@ uploaded_files = st.sidebar.file_uploader(
 live_mode = st.sidebar.toggle("Live Simulation", False)
 max_rows = st.sidebar.slider("Max Rows", 1000, 20000, 10000, 1000)
 batch_size = st.sidebar.slider("Batch Size", 100, 1000, 200, 100)
-
-# ===============================
-# CARD
-# ===============================
-def card(label, value):
-    return f"""
-    <div class="card">
-        <div class="metric-value">{value}</div>
-        <div class="metric-label">{label}</div>
-    </div>
-    """
 
 # ===============================
 # MAIN
@@ -92,7 +65,6 @@ if uploaded_files:
 
     for file in uploaded_files:
 
-        # ✅ FIXED CSV LOAD
         df = pd.read_csv(file, encoding="latin1", low_memory=False, on_bad_lines='skip')
         df.columns = df.columns.str.strip()
 
@@ -107,7 +79,6 @@ if uploaded_files:
         df_features = df_features.replace([np.inf, -np.inf], 0)
         df_features = df_features.fillna(0)
 
-        # ✅ FIXED FEATURE ALIGNMENT
         df_features = df_features.reindex(columns=feature_columns, fill_value=0)
 
         st.write("Processed rows:", len(df_features))
@@ -116,56 +87,52 @@ if uploaded_files:
             df_features = df_features.sample(n=max_rows, random_state=42)
 
         # ===============================
-        # 🔥 BATCH INFERENCE (FIXED)
+        # 🔥 PROCESS ALL DATA AT ONCE (NO LOOP BREAK)
         # ===============================
-        for i in range(0, len(df_features), batch_size):
+        X_scaled = scaler.transform(df_features)
 
-            batch = df_features.iloc[i:i+batch_size]
+        xgb_proba = xgb_model.predict_proba(X_scaled)
+        if_preds = iso_model.predict(X_scaled)
 
-            batch_scaled = scaler.transform(batch)
+        max_idx = np.argmax(xgb_proba, axis=1)
+        max_prob = np.max(xgb_proba, axis=1)
 
-            xgb_proba = xgb_model.predict_proba(batch_scaled)
-            if_preds = iso_model.predict(batch_scaled)
+        forced_attack = (max_idx == 0) & (max_prob < 0.4)
+        final_idx = np.where(forced_attack, 1, max_idx)
 
-            max_idx = np.argmax(xgb_proba, axis=1)
-            max_prob = np.max(xgb_proba, axis=1)
+        final_idx = np.clip(final_idx, 0, len(le.classes_) - 1)
 
-            forced_attack = (max_idx == 0) & (max_prob < 0.4)
-            final_idx = np.where(forced_attack, 1, max_idx)
+        labels = le.inverse_transform(final_idx)
+        anomalies = (if_preds == -1)
 
-            final_idx = np.clip(final_idx, 0, len(le.classes_) - 1)
+        # ===============================
+        # 🔥 CORRECT COUNTING
+        # ===============================
+        total_records += len(labels)
+        confidences.extend(np.clip(max_prob, 0, 0.99))
 
-            labels = le.inverse_transform(final_idx)
-            anomalies = (if_preds == -1)
+        for label in labels:
+            if label != "BENIGN":
+                total_attacks += 1
+                attack_counter[label] += 1
 
-            # ✅ FIXED COUNTING (CRITICAL)
-            total_records += len(labels)
-
-            confidences.extend(np.clip(max_prob, 0, 0.99))
-
-            for label in labels:
-                if label != "BENIGN":
-                    total_attacks += 1
-                    attack_counter[label] += 1
-
-            total_anomalies += int(np.sum(anomalies))
+        total_anomalies += int(np.sum(anomalies))
 
     end_time = time.time()
 
     # ===============================
-    # METRICS
+    # DISPLAY
     # ===============================
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.markdown(card("Total Traffic", total_records), unsafe_allow_html=True)
-    col2.markdown(card("Attacks", total_attacks), unsafe_allow_html=True)
-    col3.markdown(card("Anomalies", total_anomalies), unsafe_allow_html=True)
-    col4.markdown(card("Avg Confidence", f"{np.mean(confidences):.2f}"), unsafe_allow_html=True)
+    col1.metric("Total Traffic", total_records)
+    col2.metric("Attacks", total_attacks)
+    col3.metric("Anomalies", total_anomalies)
+    col4.metric("Avg Confidence", f"{np.mean(confidences):.2f}")
 
-    st.markdown(card("Processing Time", f"{end_time - start_time:.2f}s"), unsafe_allow_html=True)
+    st.write("Processing Time:", round(end_time - start_time, 2), "sec")
 
     if attack_counter:
-        st.subheader("Attack Distribution")
         st.bar_chart(pd.DataFrame({
             "Attack": list(attack_counter.keys()),
             "Count": list(attack_counter.values())
@@ -173,7 +140,6 @@ if uploaded_files:
 
     benign = total_records - total_attacks
 
-    st.subheader("Traffic Ratio")
     st.bar_chart(pd.DataFrame({
         "Type": ["Benign", "Attack"],
         "Count": [benign, total_attacks]
@@ -184,4 +150,4 @@ if uploaded_files:
     st.pyplot(fig)
 
 else:
-    st.info("Upload dataset to start")
+    st.info("Upload dataset")
