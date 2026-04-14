@@ -131,6 +131,9 @@ if uploaded_files:
             forced_attack = (max_idx == 0) & (max_prob < 0.4)
             final_idx = np.where(forced_attack, 1, max_idx)
 
+            # ✅ FIX: prevent unseen label crash
+            final_idx = np.clip(final_idx, 0, len(le.classes_) - 1)
+
             labels = le.inverse_transform(final_idx)
             anomalies = (if_preds == -1)
 
