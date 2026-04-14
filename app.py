@@ -29,6 +29,11 @@ def load_models():
     le = joblib.load("label_encoder.pkl")
     feature_columns = joblib.load("features.pkl")
 
+    try:
+        xgb_model.set_params(n_jobs=1)
+    except:
+        pass
+
     return xgb_model, iso_model, scaler, le, feature_columns
 
 
@@ -40,14 +45,13 @@ xgb_model, iso_model, scaler, le, feature_columns = load_models()
 st.title("AI Intrusion Detection System")
 
 uploaded_files = st.sidebar.file_uploader(
-    "Upload CSV",
+    "Upload Network Logs",
     type=["csv"],
     accept_multiple_files=True
 )
 
 live_mode = st.sidebar.toggle("Live Simulation", False)
 max_rows = st.sidebar.slider("Max Rows", 1000, 20000, 10000, 1000)
-batch_size = st.sidebar.slider("Batch Size", 100, 1000, 200, 100)
 
 # ===============================
 # MAIN
@@ -65,31 +69,31 @@ if uploaded_files:
 
     for file in uploaded_files:
 
+        # 🔥 SAFE CSV LOAD
         df = pd.read_csv(file, encoding="latin1", low_memory=False, on_bad_lines='skip')
         df.columns = df.columns.str.strip()
-
-        st.write("Original rows:", len(df))
 
         if "Label" in df.columns:
             df_features = df.drop(columns=["Label"])
         else:
             df_features = df.copy()
 
+        # 🔥 CLEAN DATA
         df_features = df_features.apply(pd.to_numeric, errors='coerce')
         df_features = df_features.replace([np.inf, -np.inf], 0)
         df_features = df_features.fillna(0)
 
+        # 🔥 ALIGN FEATURES
         df_features = df_features.reindex(columns=feature_columns, fill_value=0)
 
-        st.write("Processed rows:", len(df_features))
-
+        # 🔥 OPTIONAL SAMPLING
         if live_mode and len(df_features) > max_rows:
             df_features = df_features.sample(n=max_rows, random_state=42)
 
         # ===============================
-        # 🔥 PROCESS ALL DATA AT ONCE (NO LOOP BREAK)
+        # 🚀 PROCESS FULL DATA (NO BATCH BUG)
         # ===============================
-        X_scaled = scaler.transform(df_features)
+        X_scaled = scaler.transform(df_features.values)
 
         xgb_proba = xgb_model.predict_proba(X_scaled)
         if_preds = iso_model.predict(X_scaled)
@@ -105,9 +109,7 @@ if uploaded_files:
         labels = le.inverse_transform(final_idx)
         anomalies = (if_preds == -1)
 
-        # ===============================
         # 🔥 CORRECT COUNTING
-        # ===============================
         total_records += len(labels)
         confidences.extend(np.clip(max_prob, 0, 0.99))
 
@@ -132,7 +134,11 @@ if uploaded_files:
 
     st.write("Processing Time:", round(end_time - start_time, 2), "sec")
 
+    # ===============================
+    # CHARTS
+    # ===============================
     if attack_counter:
+        st.subheader("Attack Distribution")
         st.bar_chart(pd.DataFrame({
             "Attack": list(attack_counter.keys()),
             "Count": list(attack_counter.values())
@@ -140,6 +146,7 @@ if uploaded_files:
 
     benign = total_records - total_attacks
 
+    st.subheader("Traffic Ratio")
     st.bar_chart(pd.DataFrame({
         "Type": ["Benign", "Attack"],
         "Count": [benign, total_attacks]
@@ -150,4 +157,4 @@ if uploaded_files:
     st.pyplot(fig)
 
 else:
-    st.info("Upload dataset")
+    st.info("Upload dataset to start")
