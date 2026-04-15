@@ -1,151 +1,188 @@
-# AI Intrusion Detection System (IDS)
+# Intrusion Detection System (IDS)
 
 ## Overview
 
-This project implements a machine learning-based Intrusion Detection System (IDS) for analyzing network traffic and detecting malicious activities.
-It combines supervised learning for attack classification and unsupervised learning for anomaly detection, providing both accuracy and robustness.
+This project is a cloud-deployed AI-based Intrusion Detection System that analyzes network traffic and classifies it as benign or malicious. It uses machine learning models trained on the CICIDS dataset and provides an interactive dashboard for visualization and analysis.
 
-The system includes:
+The system supports real-time simulation, batch processing of network logs, and displays attack distributions and traffic insights.
 
-* Machine learning-based attack classification
-* Anomaly detection for unknown or suspicious patterns
-* Flask-based backend API
-* Streamlit-based dashboard interface
+---
+
+## Features
+
+* Multi-class attack classification using XGBoost
+* Anomaly detection using Isolation Forest
+* Real-time simulation mode for faster analysis
+* Interactive Streamlit dashboard
+* Attack type distribution visualization
+* Traffic split visualization (Benign vs Attack)
+* Cloud deployment using AWS EC2
+* Handles large datasets with optimized preprocessing
 
 ---
 
 ## Tech Stack
 
 * Python
-* XGBoost (multi-class classification)
-* Isolation Forest (anomaly detection)
-* Flask (backend API)
-* Streamlit (dashboard UI)
-* Pandas, NumPy, Matplotlib, Seaborn
+* Streamlit
+* XGBoost
+* Scikit-learn
+* Pandas, NumPy
+* Matplotlib
+* AWS EC2
+
+---
+
+## Dataset
+
+The model is trained on the CICIDS dataset, which includes various types of network traffic such as:
+
+* Benign traffic
+* DDoS
+* Port Scan
+* Web Attacks
+* Infiltration
+
+A balanced dataset was created by sampling from multiple CSV files to ensure fair representation of attack types.
 
 ---
 
 ## Project Structure
 
 ```
-project/
+intrusion-detection-system/
 │
-├── app.py
-├── ui.py
-├── features.pkl
-├── scaler.pkl
-├── label_encoder.pkl
-├── ids_xgboost_multiclass.pkl
-├── isolation_forest.pkl
-├── final_realistic_dataset.csv
-└── README.md
+├── app.py                     # Main Streamlit application
+├── requirements.txt          # Dependencies
+├── features.pkl              # Feature column order
+├── scaler.pkl                # Feature scaler
+├── label_encoder.pkl         # Label encoder
+├── isolation_forest.pkl      # Anomaly detection model
+├── xgb_model.json            # XGBoost model (JSON format)
+├── README.md                 # Documentation
+└── dataset (optional)        # Sample dataset for testing
 ```
 
 ---
 
-## Features
+## How It Works
 
-* Multi-class attack detection (DoS, DDoS, PortScan, etc.)
-* Real-time traffic simulation mode
-* Anomaly detection using Isolation Forest
-* Attack type distribution visualization
-* Confusion matrix for performance evaluation
-* Confidence score tracking
-* Interactive dashboard with configurable parameters
-
----
-
-## Dataset
-
-* Based on the CICIDS2017 dataset
-* A custom dataset is created by:
-
-  * Sampling multiple traffic files
-  * Combining benign and attack traffic
-  * Shuffling for realistic distribution
+1. Upload a CSV file containing network traffic data
+2. Data is cleaned and aligned with training features
+3. Features are scaled using a pre-trained scaler
+4. XGBoost predicts attack type
+5. Isolation Forest detects anomalies
+6. Results are displayed with metrics and visualizations
 
 ---
 
-## Model Details
+## Running Locally
 
-### XGBoost Classifier
+### 1. Clone the repository
 
-* Used for multi-class classification of network traffic
-* Trained on a balanced dataset
-* Outputs predicted attack type and confidence score
+```
+git clone https://github.com/nvcidd/intrusion-detection-system.git
+cd intrusion-detection-system
+```
 
-### Isolation Forest
+### 2. Install dependencies
 
-* Trained only on benign traffic
-* Identifies anomalous or previously unseen patterns
+```
+pip install -r requirements.txt
+```
+
+### 3. Run the application
+
+```
+streamlit run app.py
+```
+
+### 4. Open in browser
+
+```
+http://localhost:8501
+```
 
 ---
 
-## How to Run
+## Cloud Deployment (AWS EC2)
 
-### 1. Start Backend
+### 1. Launch EC2 Instance
 
-```
-python app.py
-```
+* Choose Amazon Linux or Ubuntu
+* Allow inbound traffic on ports:
 
-### 2. Run Dashboard
-
-```
-streamlit run ui.py
-```
-
-### 3. Use the System
-
-* Upload a CSV file in CICIDS format
-* View detection results and analytics in the dashboard
+  * 22 (SSH)
+  * 8501 (Streamlit)
 
 ---
 
-## Deployment
-
-To deploy the system:
-
-* Update the API URL in `ui.py`:
+### 2. Connect to EC2
 
 ```
-API_URL = "https://your-cloud-url/predict"
+ssh -i IDS.pem ubuntu@<PUBLIC_IP>
 ```
-
-* Deploy using platforms such as Render, Railway, AWS, or Azure
 
 ---
 
-## Output
+### 3. Install dependencies
 
-The system provides:
-
-* Total traffic processed
-* Number of detected attacks
-* Number of anomalies
-* Attack distribution charts
-* Confusion matrix
-* Confidence analysis
+```
+sudo apt update
+sudo apt install python3-pip -y
+pip3 install -r requirements.txt
+```
 
 ---
 
-## Limitations
+### 4. Clone project
 
-* Confidence scores from tree-based models may be overestimated
-* Model performance depends on dataset quality and balance
-* Real-time deployment requires integration with live network data
+```
+git clone https://github.com/nvcidd/intrusion-detection-system.git
+cd intrusion-detection-system
+```
+
+---
+
+### 5. Run application
+
+```
+streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+```
+
+---
+
+### 6. Access application
+
+```
+http://<PUBLIC_IP>:8501
+```
+
+---
+
+## Usage Notes
+
+* Enable "Live Simulation" for faster processing on large datasets
+* Use smaller datasets (1k–10k rows) for cloud deployment
+* Large datasets can be tested locally
+* Public IP may change when instance is restarted
+
+---
+
+## Performance Considerations
+
+* CPU usage is limited to prevent crashes on low-memory instances
+* Batch processing was removed to avoid Streamlit rerun issues
+* Models are loaded lazily for memory efficiency
 
 ---
 
 ## Future Improvements
 
-* Integration with real-time packet capture
-* Model calibration for better probability estimation
-* Real-time alerting system
-* Enhanced dashboard for SOC environments
-* Cloud-native deployment and scaling
+* Add domain and HTTPS support
+* Deploy using Docker
+* Add real-time network packet capture
+* Improve UI with advanced analytics
+* Auto-start service on EC2 boot
 
-
-
-Developed as a machine learning and cloud security project focused on intelligent network intrusion detection.
 
